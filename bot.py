@@ -14,7 +14,7 @@ PERMITTED_FILE = "permitted.json"
 TOKEN = os.environ.get("DISCORD_TOKEN")  # Set in Railway environment variables
 # ─────────────────────────────────────────────────────────────
 
-intents = discord.Intents.default()
+intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
@@ -168,7 +168,7 @@ async def addstock(interaction: discord.Interaction, file: discord.Attachment):
             embed=error_embed("Invalid File", "Please attach a `.txt` file."),
             ephemeral=True
         )
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(file.url) as resp:

@@ -315,4 +315,61 @@ async def on_ready():
     print(f"Logged in as {bot.user} | Slash commands synced.")
 
 
+
+# ══════════════════════════════════════════════════════════════
+#  PREFIX COMMANDS  (!gen, !stock, !sendaccount)
+# ══════════════════════════════════════════════════════════════
+
+@bot.command(name="gen")
+async def prefix_gen(ctx: commands.Context):
+    if not is_owner_id(ctx.author.id):
+        return await ctx.send(embed=error_embed("No Permission", "Only owners can generate accounts."))
+    status, data, embed = await do_generate(ctx.author)
+    if status == "cooldown":
+        return await ctx.send(embed=error_embed("⏳ Cooldown", f"Please wait **{data}s** before generating again."))
+    if status == "empty":
+        return await ctx.send(embed=error_embed("Out of Stock", "There are no accounts available right now."))
+    try:
+        await ctx.author.send(embed=embed)
+        await ctx.send(embed=success_embed("Account Sent!", "Your Minecraft account has been sent to your DMs! 📬"))
+    except discord.Forbidden:
+        await ctx.send(content="⚠️ Couldn't DM you, here it is:", embed=embed)
+
+
+@bot.command(name="stock")
+async def prefix_stock(ctx: commands.Context):
+    if not is_owner_id(ctx.author.id):
+        return await ctx.send(embed=error_embed("No Permission", "Only owners can check stock."))
+    count = len(load_stock())
+    color = 0x57F287 if count > 0 else 0xED4245
+    embed = discord.Embed(
+        title="📦 Stock Status",
+        description=f"There are **{count}** account(s) available." if count > 0 else "Stock is **empty**.",
+        color=color
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="sendaccount")
+async def prefix_sendaccount(ctx: commands.Context, user: discord.Member = None):
+    if not is_owner_id(ctx.author.id):
+        return await ctx.send(embed=error_embed("No Permission", "Only owners can send accounts."))
+    if not user:
+        return await ctx.send(embed=error_embed("Missing User", "Usage: `!sendaccount @user`"))
+    status, stock, embed = await do_sendaccount(user, ctx.author)
+    if status == "empty":
+        return await ctx.send(embed=error_embed("Out of Stock", "There are no accounts available right now."))
+    try:
+        await user.send(embed=embed)
+    except discord.Forbidden:
+        stock_back = load_stock()
+        stock_back.insert(0, f"{embed.fields[0].value.strip('`')}:{embed.fields[1].value.strip('`')}")
+        save_stock(stock_back)
+        return await ctx.send(embed=error_embed("DM Failed", f"Couldn't DM {user.mention}. They may have DMs disabled."))
+    await ctx.send(
+        content=f"{user.mention}",
+        embed=success_embed("Account Sent!", f"{user.mention} has been sent a Minecraft account via DM.\nSent by {ctx.author.mention}")
+    )
+
+
 bot.run(TOKEN)

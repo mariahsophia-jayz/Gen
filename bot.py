@@ -8,7 +8,7 @@ import aiohttp
 
 # ── Config ────────────────────────────────────────────────────
 OWNER_IDS = [1380042914922758224, 1451233341327147059]  # yocryptfez, icezz___
-COOLDOWN_SECONDS = 30
+COOLDOWN_SECONDS = 5
 STOCK_FILE = "stock.txt"
 PERMITTED_FILE = "permitted.json"
 TOKEN = os.environ.get("DISCORD_TOKEN")  # Set in Railway environment variables

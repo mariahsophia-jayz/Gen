@@ -8,7 +8,7 @@ import aiohttp
 
 # ── Config ────────────────────────────────────────────────────
 OWNER_IDS = [1380042914922758224, 1451233341327147059]  # yocryptfez, icezz___
-COOLDOWN_SECONDS = 10
+COOLDOWN_SECONDS = 30
 STOCK_FILE = "stock.txt"
 PERMITTED_FILE = "permitted.json"
 TOKEN = os.environ.get("DISCORD_TOKEN")  # Set in Railway environment variables
@@ -243,6 +243,68 @@ async def stock_cmd(interaction: discord.Interaction):
         color=color
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ── Bot ready ─────────────────────────────────────────────────
+
+@bot.event
+async def on_ready():
+    await tree.sync()
+
+# ── /sendaccount ──────────────────────────────────────────────
+
+@tree.command(name="sendaccount", description="Send a Minecraft account to a user via DM")
+@app_commands.describe(user="The user to send an account to")
+async def sendaccount(interaction: discord.Interaction, user: discord.Member):
+    if not is_owner(interaction):
+        return await interaction.response.send_message(
+            embed=error_embed("No Permission", "Only owners can send accounts."),
+            ephemeral=True
+        )
+
+    stock = load_stock()
+    if not stock:
+        return await interaction.response.send_message(
+            embed=error_embed("Out of Stock", "There are no accounts available right now."),
+            ephemeral=True
+        )
+
+    account = stock.pop(0)
+    save_stock(stock)
+
+    if ":" in account:
+        parts = account.split(":", 1)
+        email, password = parts[0], parts[1]
+    else:
+        email, password = account, "N/A"
+
+    # DM embed
+    dm_embed = discord.Embed(title="🎮 You received a Minecraft Account!", color=0x5865F2)
+    dm_embed.add_field(name="📧 Email / Username", value=f"`{email}`", inline=False)
+    dm_embed.add_field(name="🔑 Password", value=f"`{password}`", inline=False)
+    dm_embed.add_field(name="📦 Remaining Stock", value=f"{len(stock)} account(s)", inline=False)
+    dm_embed.set_footer(text=f"Sent by {interaction.user}")
+    dm_embed.timestamp = discord.utils.utcnow()
+
+    try:
+        await user.send(embed=dm_embed)
+    except discord.Forbidden:
+        # Give back the account if DM failed
+        stock.insert(0, account)
+        save_stock(stock)
+        return await interaction.response.send_message(
+            embed=error_embed("DM Failed", f"Couldn't DM {user.mention}. They may have DMs disabled."),
+            ephemeral=True
+        )
+
+    # Ping in channel
+    await interaction.response.send_message(
+        content=f"{user.mention}",
+        embed=success_embed(
+            "Account Sent!",
+            f"{user.mention} has been sent a Minecraft account via DM.\nSent by {interaction.user.mention}"
+        )
+    )
 
 
 # ── Bot ready ─────────────────────────────────────────────────

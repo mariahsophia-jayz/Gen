@@ -627,7 +627,6 @@ async def prefix_history(ctx: commands.Context):
 
 
 @bot.command(name="help", aliases=["cmds"])
-@bot.remove_command("help")
 
 async def prefix_help(ctx: commands.Context):
     owner = is_owner_id(ctx.author.id)

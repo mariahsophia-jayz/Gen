@@ -7,7 +7,6 @@ import time
 import re
 import asyncio
 import aiohttp
-from datetime import datetime, timezone
 
 # ── Config ────────────────────────────────────────────────────
 OWNER_IDS = [1380042914922758224, 1451233341327147059]  # yocryptfez, icezz___
@@ -17,6 +16,13 @@ STOCK_FILE = "stock.txt"
 PERMITTED_FILE = "permitted.json"
 HISTORY_FILE = "history.json"
 TOKEN = os.environ.get("DISCORD_TOKEN")
+
+# ── Colors ────────────────────────────────────────────────────
+PURPLE      = 0x9B59B6
+GOLD        = 0xF1C40F
+RED         = 0xE74C3C
+GREEN       = 0x2ECC71
+DARK_PURPLE = 0x6C3483
 # ─────────────────────────────────────────────────────────────
 
 intents = discord.Intents.all()
@@ -64,11 +70,9 @@ def load_permitted() -> dict:
     with open(PERMITTED_FILE, "r") as f:
         return json.load(f)
 
-
 def save_permitted(data: dict):
     with open(PERMITTED_FILE, "w") as f:
         json.dump(data, f, indent=2)
-
 
 def is_permitted(user_id: int) -> bool:
     data = load_permitted()
@@ -83,18 +87,15 @@ def is_permitted(user_id: int) -> bool:
             return False
     return True
 
-
 def add_permitted(user_id: int, username: str, expires: float = None):
     data = load_permitted()
     data[str(user_id)] = {"username": username, "expires": expires}
     save_permitted(data)
 
-
 def remove_permitted(user_id: int):
     data = load_permitted()
     data.pop(str(user_id), None)
     save_permitted(data)
-
 
 def load_stock() -> list:
     if not os.path.exists(STOCK_FILE):
@@ -102,11 +103,9 @@ def load_stock() -> list:
     with open(STOCK_FILE, "r") as f:
         return [line.strip() for line in f if line.strip()]
 
-
 def save_stock(lines: list):
     with open(STOCK_FILE, "w") as f:
         f.write("\n".join(lines) + ("\n" if lines else ""))
-
 
 def load_history() -> list:
     if not os.path.exists(HISTORY_FILE):
@@ -114,21 +113,13 @@ def load_history() -> list:
     with open(HISTORY_FILE, "r") as f:
         return json.load(f)
 
-
 def save_history(data: list):
     with open(HISTORY_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-
 def log_history(user_id: int, username: str, email: str, sent_by: str = None):
     history = load_history()
-    history.append({
-        "user_id": user_id,
-        "username": username,
-        "email": email,
-        "sent_by": sent_by,
-        "timestamp": time.time()
-    })
+    history.append({"user_id": user_id, "username": username, "email": email, "sent_by": sent_by, "timestamp": time.time()})
     save_history(history)
 
 
@@ -139,21 +130,45 @@ def log_history(user_id: int, username: str, email: str, sent_by: str = None):
 def is_owner_id(uid: int) -> bool:
     return uid in OWNER_IDS
 
-
 def is_owner(i: discord.Interaction) -> bool:
     return i.user.id in OWNER_IDS
 
-
 def error_embed(title: str, desc: str) -> discord.Embed:
-    return discord.Embed(title=f"❌ {title}", description=desc, color=0xED4245)
-
+    e = discord.Embed(title=f"╳  {title}", description=f"> {desc}", color=RED)
+    e.set_footer(text="⚡ MC Account Bot")
+    return e
 
 def success_embed(title: str, desc: str) -> discord.Embed:
-    return discord.Embed(title=f"✅ {title}", description=desc, color=0x57F287)
+    e = discord.Embed(title=f"✦  {title}", description=f"> {desc}", color=GREEN)
+    e.set_footer(text="⚡ MC Account Bot")
+    return e
+
+def stock_embed(count: int) -> discord.Embed:
+    color = GOLD if count > 0 else RED
+    status = "🟢  Online" if count > 0 else "🔴  Empty"
+    e = discord.Embed(title="◈  Stock Status", color=color)
+    e.add_field(name="Available Accounts", value=f"```{count}```", inline=True)
+    e.add_field(name="Status", value=f"```{status}```", inline=True)
+    e.set_footer(text="⚡ MC Account Bot")
+    e.timestamp = discord.utils.utcnow()
+    return e
+
+def account_embed(accounts: list, user, sent_by=None) -> discord.Embed:
+    is_gift = sent_by is not None
+    title = "╔══ 🎁  YOU GOT AN ACCOUNT! ══╗" if is_gift else "╔══ 🎮  MINECRAFT ACCOUNT ══╗"
+    color = GOLD if is_gift else PURPLE
+    e = discord.Embed(title=title, description="```" + "─" * 32 + "```", color=color)
+    for i, account in enumerate(accounts, 1):
+        email, password = (account.split(":", 1) if ":" in account else (account, "N/A"))
+        e.add_field(name=f"✦ Account #{i}", value=f"```yaml\nEmail   : {email}\nPassword: {password}```", inline=False)
+    footer_user = sent_by if is_gift else user
+    e.set_footer(text=f"⚡ {'Sent by ' + str(footer_user) if is_gift else 'Generated for ' + str(user)} • Keep this private!")
+    e.timestamp = discord.utils.utcnow()
+    return e
 
 
 # ══════════════════════════════════════════════════════════════
-#  LOW STOCK NOTIFIER
+#  LOW STOCK NOTIFIER & STATUS
 # ══════════════════════════════════════════════════════════════
 
 async def notify_low_stock(count: int):
@@ -161,137 +176,112 @@ async def notify_low_stock(count: int):
         for owner_id in OWNER_IDS:
             try:
                 user = await bot.fetch_user(owner_id)
-                embed = discord.Embed(
-                    title="⚠️ Low Stock Alert",
-                    description=f"Stock is running low! Only **{count}** account(s) remaining.",
-                    color=0xFEE75C
-                )
-                await user.send(embed=embed)
+                e = discord.Embed(title="⚠️  Low Stock Alert", color=GOLD)
+                e.description = f"```yaml\nStock is running low!\nOnly {count} account(s) remaining.```"
+                e.set_footer(text="⚡ MC Account Bot • Restock soon!")
+                await user.send(embed=e)
             except Exception:
                 pass
-
-
-# ══════════════════════════════════════════════════════════════
-#  STATUS UPDATER
-# ══════════════════════════════════════════════════════════════
 
 async def update_status():
     await bot.wait_until_ready()
     while not bot.is_closed():
         count = len(load_stock())
-        await bot.change_presence(
-            activity=discord.Activity(
-                type=discord.ActivityType.watching,
-                name=f"{count} accounts in stock"
-            )
-        )
+        await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"{count} accounts in stock"))
         await asyncio.sleep(60)
 
 
 # ══════════════════════════════════════════════════════════════
-#  CORE GENERATE LOGIC
+#  CORE LOGIC
 # ══════════════════════════════════════════════════════════════
 
-async def do_generate(user):
+async def core_generate(user, amount: int):
     now = time.time()
     last = cooldowns.get(user.id, 0)
     remaining = COOLDOWN_SECONDS - (now - last)
     if remaining > 0:
-        return "cooldown", int(remaining) + 1, None
+        return "cooldown", int(remaining) + 1, None, None
 
     stock = load_stock()
     if not stock:
-        return "empty", None, None
+        return "empty", None, None, None
+    if amount > len(stock):
+        return "notenough", len(stock), None, None
 
-    account = stock.pop(0)
-    save_stock(stock)
+    accounts = stock[:amount]
+    save_stock(stock[amount:])
     cooldowns[user.id] = now
 
-    email, password = (account.split(":", 1) if ":" in account else (account, "N/A"))
+    for acc in accounts:
+        email = acc.split(":", 1)[0] if ":" in acc else acc
+        log_history(user.id, str(user), email)
 
-    embed = discord.Embed(title="🎮 Minecraft Account", color=0x5865F2)
-    embed.add_field(name="📧 Email / Username", value=f"`{email}`", inline=False)
-    embed.add_field(name="🔑 Password", value=f"`{password}`", inline=False)
-    embed.add_field(name="📦 Remaining Stock", value=f"{len(stock)} account(s)", inline=False)
-    embed.set_footer(text=f"Generated for {user}")
-    embed.timestamp = discord.utils.utcnow()
-
-    log_history(user.id, str(user), email)
-    await notify_low_stock(len(stock))
-
-    return "ok", stock, embed
+    embed = account_embed(accounts, user)
+    embed.add_field(name="📦 Stock Remaining", value=f"```{len(stock) - amount} accounts left```", inline=False)
+    await notify_low_stock(len(stock) - amount)
+    return "ok", accounts, embed, len(stock) - amount
 
 
-async def do_sendaccount(target, sender):
+async def core_sendaccount(target, sender, amount: int):
     stock = load_stock()
     if not stock:
         return "empty", None, None
+    if amount > len(stock):
+        return "notenough", len(stock), None
 
-    account = stock.pop(0)
-    save_stock(stock)
+    accounts = stock[:amount]
+    save_stock(stock[amount:])
 
-    email, password = (account.split(":", 1) if ":" in account else (account, "N/A"))
+    for acc in accounts:
+        email = acc.split(":", 1)[0] if ":" in acc else acc
+        log_history(target.id, str(target), email, sent_by=str(sender))
 
-    embed = discord.Embed(title="🎮 You received a Minecraft Account!", color=0x5865F2)
-    embed.add_field(name="📧 Email / Username", value=f"`{email}`", inline=False)
-    embed.add_field(name="🔑 Password", value=f"`{password}`", inline=False)
-    embed.add_field(name="📦 Remaining Stock", value=f"{len(stock)} account(s)", inline=False)
-    embed.set_footer(text=f"Sent by {sender}")
-    embed.timestamp = discord.utils.utcnow()
-
-    log_history(target.id, str(target), email, sent_by=str(sender))
-    await notify_low_stock(len(stock))
-
-    return "ok", stock, embed
+    embed = account_embed(accounts, target, sent_by=sender)
+    embed.add_field(name="📦 Stock Remaining", value=f"```{len(stock) - amount} accounts left```", inline=False)
+    await notify_low_stock(len(stock) - amount)
+    return "ok", accounts, embed
 
 
 # ══════════════════════════════════════════════════════════════
 #  SLASH COMMANDS
 # ══════════════════════════════════════════════════════════════
 
-# ── /genaccess ────────────────────────────────────────────────
-
 @tree.command(name="genaccess", description="Grant a user permission to use /generate")
-@app_commands.describe(user="The user to grant access to", duration="Duration e.g. 1h, 7d, 2w, 1y (leave blank for permanent)")
+@app_commands.describe(user="The user to grant access to", duration="Duration e.g. 1h, 7d, 2w, 1y (blank = permanent)")
 async def genaccess(interaction: discord.Interaction, user: discord.Member, duration: str = None):
     if not is_owner(interaction):
         return await interaction.response.send_message(embed=error_embed("No Permission", "Only owners can grant access."), ephemeral=True)
     if user.id in OWNER_IDS:
         return await interaction.response.send_message(embed=error_embed("Already Authorized", "That user is already an owner."), ephemeral=True)
-
     expires = None
     duration_text = "Permanent"
-
     if duration:
         secs = parse_duration(duration)
         if not secs:
-            return await interaction.response.send_message(
-                embed=error_embed("Invalid Duration", "Use formats like `30s`, `5m`, `2h`, `7d`, `2w`, `1y`"),
-                ephemeral=True
-            )
+            return await interaction.response.send_message(embed=error_embed("Invalid Duration", "Use formats like `30s`, `5m`, `2h`, `7d`, `2w`, `1y`"), ephemeral=True)
         expires = time.time() + secs
         duration_text = fmt_duration(secs)
-
     add_permitted(user.id, str(user), expires)
-    desc = f"{user.mention} can now use `/generate`.\nDuration: **{duration_text}**\nGranted by {interaction.user.mention}"
+    e = discord.Embed(title="✦  Access Granted", color=GOLD)
+    e.add_field(name="User", value=user.mention, inline=True)
+    e.add_field(name="Duration", value=f"`{duration_text}`", inline=True)
+    e.add_field(name="Granted by", value=interaction.user.mention, inline=True)
     if expires:
-        desc += f"\nExpires: <t:{int(expires)}:R>"
-
-    await interaction.response.send_message(embed=success_embed("Access Granted", desc))
-
-    # DM the user
+        e.add_field(name="Expires", value=f"<t:{int(expires)}:R>", inline=False)
+    e.set_footer(text="⚡ MC Account Bot")
+    e.timestamp = discord.utils.utcnow()
+    await interaction.response.send_message(embed=e)
     try:
-        dm = discord.Embed(title="✅ Generator Access Granted", color=0x57F287)
-        dm.description = f"You have been granted access to generate Minecraft accounts.\nDuration: **{duration_text}**"
+        dm = discord.Embed(title="✦  You Got Generator Access!", color=GOLD)
+        dm.description = f"```yaml\nYou can now generate Minecraft accounts!\nDuration: {duration_text}```"
         if expires:
-            dm.add_field(name="Expires", value=f"<t:{int(expires)}:R>", inline=False)
-        dm.set_footer(text=f"Granted by {interaction.user}")
+            dm.add_field(name="⏳ Expires", value=f"<t:{int(expires)}:R>", inline=False)
+        dm.set_footer(text=f"⚡ Granted by {interaction.user} • MC Account Bot")
+        dm.timestamp = discord.utils.utcnow()
         await user.send(embed=dm)
     except Exception:
         pass
 
-
-# ── /revokeaccess ─────────────────────────────────────────────
 
 @tree.command(name="revokeaccess", description="Remove a user's permission to use /generate")
 @app_commands.describe(user="The user to revoke access from")
@@ -304,30 +294,26 @@ async def revokeaccess(interaction: discord.Interaction, user: discord.Member):
     await interaction.response.send_message(embed=success_embed("Access Revoked", f"{user.mention}'s access has been removed."))
 
 
-# ── /listaccess ───────────────────────────────────────────────
-
-@tree.command(name="listaccess", description="List all users with granted /generate access")
+@tree.command(name="listaccess", description="List all users with granted access")
 async def listaccess(interaction: discord.Interaction):
     if not is_owner(interaction):
         return await interaction.response.send_message(embed=error_embed("No Permission", "Only owners can view this."), ephemeral=True)
     data = load_permitted()
     if not data:
-        return await interaction.response.send_message(
-            embed=discord.Embed(title="📋 Permitted Users", description="No users granted access yet.", color=0x5865F2),
-            ephemeral=True
-        )
+        e = discord.Embed(title="◈  Permitted Users", description="> No users granted access yet.", color=PURPLE)
+        e.set_footer(text="⚡ MC Account Bot")
+        return await interaction.response.send_message(embed=e, ephemeral=True)
     lines = []
     for uid, entry in data.items():
         uname = entry.get("username", uid) if isinstance(entry, dict) else entry
         exp = entry.get("expires") if isinstance(entry, dict) else None
         exp_text = f" — expires <t:{int(exp)}:R>" if exp else " — Permanent"
         lines.append(f"<@{uid}> (`{uname}`){exp_text}")
-    embed = discord.Embed(title="📋 Permitted Users", description="\n".join(lines), color=0x5865F2)
-    embed.set_footer(text=f"{len(data)} user(s) with access")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    e = discord.Embed(title="◈  Permitted Users", description="\n".join(lines), color=PURPLE)
+    e.set_footer(text=f"⚡ {len(data)} user(s) with access • MC Account Bot")
+    e.timestamp = discord.utils.utcnow()
+    await interaction.response.send_message(embed=e, ephemeral=True)
 
-
-# ── /addstock ─────────────────────────────────────────────────
 
 @tree.command(name="addstock", description="Upload a .txt file to add Minecraft accounts to stock")
 @app_commands.describe(file="A .txt file with one account per line (email:password)")
@@ -347,72 +333,73 @@ async def addstock(interaction: discord.Interaction, file: discord.Attachment):
         existing = load_stock()
         merged = existing + new_accounts
         save_stock(merged)
-        await interaction.followup.send(embed=success_embed("Stock Updated", f"Added **{len(new_accounts)}** account(s).\nTotal stock: **{len(merged)}**"))
-    except Exception as e:
-        await interaction.followup.send(embed=error_embed("Error", f"Could not read the file: {e}"))
+        e = discord.Embed(title="✦  Stock Updated", color=GOLD)
+        e.add_field(name="Added", value=f"```{len(new_accounts)} accounts```", inline=True)
+        e.add_field(name="Total Stock", value=f"```{len(merged)} accounts```", inline=True)
+        e.set_footer(text=f"⚡ MC Account Bot • Uploaded by {interaction.user}")
+        e.timestamp = discord.utils.utcnow()
+        await interaction.followup.send(embed=e)
+    except Exception as ex:
+        await interaction.followup.send(embed=error_embed("Error", f"Could not read the file: {ex}"))
 
-
-# ── /generate ─────────────────────────────────────────────────
 
 @tree.command(name="generate", description="Generate a Minecraft account from stock")
-async def generate(interaction: discord.Interaction):
-    if not is_owner(interaction):
-        return await interaction.response.send_message(embed=error_embed("No Permission", "Only owners can generate accounts."), ephemeral=True)
-    status, data, embed = await do_generate(interaction.user)
+@app_commands.describe(amount="How many accounts to generate (default 1, max 10)")
+async def generate(interaction: discord.Interaction, amount: int = 1):
+    if not is_owner(interaction) and not is_permitted(interaction.user.id):
+        return await interaction.response.send_message(embed=error_embed("No Permission", "You don't have access to generate accounts."), ephemeral=True)
+    if amount < 1 or amount > 10:
+        return await interaction.response.send_message(embed=error_embed("Invalid Amount", "Amount must be between 1 and 10."), ephemeral=True)
+    status, data, embed, remaining = await core_generate(interaction.user, amount)
     if status == "cooldown":
         return await interaction.response.send_message(embed=error_embed("⏳ Cooldown", f"Please wait **{data}s** before generating again."), ephemeral=True)
     if status == "empty":
         return await interaction.response.send_message(embed=error_embed("Out of Stock", "There are no accounts available right now."), ephemeral=True)
+    if status == "notenough":
+        return await interaction.response.send_message(embed=error_embed("Not Enough Stock", f"Only **{data}** account(s) available."), ephemeral=True)
     try:
         await interaction.user.send(embed=embed)
-        await interaction.response.send_message(embed=success_embed("Account Sent!", "Your Minecraft account has been sent to your DMs! 📬"), ephemeral=True)
+        sent = discord.Embed(title="✦  Account(s) Sent!", description=f"> **{amount}** account(s) slid into your DMs 📬", color=GOLD)
+        sent.set_footer(text="⚡ MC Account Bot • Check your DMs!")
+        await interaction.response.send_message(embed=sent, ephemeral=True)
     except discord.Forbidden:
-        await interaction.response.send_message(content="⚠️ Couldn't DM you, so here it is (only you can see this):", embed=embed, ephemeral=True)
+        await interaction.response.send_message(content="⚠️ Couldn't DM you, here it is:", embed=embed, ephemeral=True)
 
-
-# ── /stock ────────────────────────────────────────────────────
-
-@tree.command(name="stock", description="Check how many accounts are in stock")
-async def stock_cmd(interaction: discord.Interaction):
-    if not is_owner(interaction):
-        return await interaction.response.send_message(embed=error_embed("No Permission", "Only owners can check stock."), ephemeral=True)
-    count = len(load_stock())
-    color = 0x57F287 if count > 0 else 0xED4245
-    embed = discord.Embed(title="📦 Stock Status", description=f"There are **{count}** account(s) available." if count > 0 else "Stock is **empty**.", color=color)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-# ── /checkstock ───────────────────────────────────────────────
-
-@tree.command(name="checkstock", description="Publicly check how many accounts are in stock")
-async def checkstock(interaction: discord.Interaction):
-    count = len(load_stock())
-    color = 0x57F287 if count > 0 else 0xED4245
-    embed = discord.Embed(title="📦 Stock Status", description=f"There are **{count}** account(s) available." if count > 0 else "Stock is currently **empty**.", color=color)
-    await interaction.response.send_message(embed=embed)
-
-
-# ── /sendaccount ──────────────────────────────────────────────
 
 @tree.command(name="sendaccount", description="Send a Minecraft account to a user via DM")
-@app_commands.describe(user="The user to send an account to")
-async def sendaccount(interaction: discord.Interaction, user: discord.Member):
+@app_commands.describe(user="The user to send an account to", amount="How many accounts to send (default 1, max 10)")
+async def sendaccount(interaction: discord.Interaction, user: discord.Member, amount: int = 1):
     if not is_owner(interaction):
         return await interaction.response.send_message(embed=error_embed("No Permission", "Only owners can send accounts."), ephemeral=True)
-    status, stock, embed = await do_sendaccount(user, interaction.user)
+    if amount < 1 or amount > 10:
+        return await interaction.response.send_message(embed=error_embed("Invalid Amount", "Amount must be between 1 and 10."), ephemeral=True)
+    status, accounts, embed = await core_sendaccount(user, interaction.user, amount)
     if status == "empty":
         return await interaction.response.send_message(embed=error_embed("Out of Stock", "There are no accounts available right now."), ephemeral=True)
+    if status == "notenough":
+        return await interaction.response.send_message(embed=error_embed("Not Enough Stock", f"Only **{accounts}** account(s) available."), ephemeral=True)
     try:
         await user.send(embed=embed)
     except discord.Forbidden:
         return await interaction.response.send_message(embed=error_embed("DM Failed", f"Couldn't DM {user.mention}. They may have DMs disabled."), ephemeral=True)
-    await interaction.response.send_message(
-        content=f"{user.mention}",
-        embed=success_embed("Account Sent!", f"{user.mention} has been sent a Minecraft account via DM.\nSent by {interaction.user.mention}")
-    )
+    confirm = discord.Embed(title="✦  Account(s) Sent!", color=PURPLE)
+    confirm.add_field(name="Sent by", value=interaction.user.mention, inline=True)
+    confirm.add_field(name="Recipient", value=user.mention, inline=True)
+    confirm.add_field(name="Amount", value=f"`{amount}`", inline=True)
+    confirm.set_footer(text="⚡ MC Account Bot")
+    confirm.timestamp = discord.utils.utcnow()
+    await interaction.response.send_message(content=f"{user.mention}", embed=confirm)
 
 
-# ── /clearstock ───────────────────────────────────────────────
+@tree.command(name="stock", description="Check how many accounts are in stock")
+async def stock_cmd(interaction: discord.Interaction):
+    await interaction.response.send_message(embed=stock_embed(len(load_stock())))
+
+
+@tree.command(name="checkstock", description="Publicly check how many accounts are in stock")
+async def checkstock(interaction: discord.Interaction):
+    await interaction.response.send_message(embed=stock_embed(len(load_stock())))
+
 
 @tree.command(name="clearstock", description="Clear all accounts from stock")
 async def clearstock(interaction: discord.Interaction):
@@ -425,24 +412,19 @@ async def clearstock(interaction: discord.Interaction):
     await interaction.response.send_message(embed=success_embed("Stock Cleared", f"Deleted **{count}** account(s) from stock."))
 
 
-# ── /removestock ─────────────────────────────────────────────
-
 @tree.command(name="removestock", description="Remove a specific number of accounts from stock")
 @app_commands.describe(amount="How many accounts to remove")
 async def removestock(interaction: discord.Interaction, amount: int):
     if not is_owner(interaction):
         return await interaction.response.send_message(embed=error_embed("No Permission", "Only owners can remove stock."), ephemeral=True)
     stock = load_stock()
-    if amount <= 0:
+    if amount < 1:
         return await interaction.response.send_message(embed=error_embed("Invalid Amount", "Amount must be greater than 0."), ephemeral=True)
     if amount > len(stock):
         return await interaction.response.send_message(embed=error_embed("Too Many", f"Only **{len(stock)}** account(s) in stock."), ephemeral=True)
-    stock = stock[amount:]
-    save_stock(stock)
-    await interaction.response.send_message(embed=success_embed("Stock Removed", f"Removed **{amount}** account(s).\nRemaining: **{len(stock)}**"))
+    save_stock(stock[amount:])
+    await interaction.response.send_message(embed=success_embed("Stock Removed", f"Removed **{amount}** account(s). Remaining: **{len(stock) - amount}**"))
 
-
-# ── /history ──────────────────────────────────────────────────
 
 @tree.command(name="history", description="View recent account generation history")
 async def history(interaction: discord.Interaction):
@@ -450,19 +432,19 @@ async def history(interaction: discord.Interaction):
         return await interaction.response.send_message(embed=error_embed("No Permission", "Only owners can view history."), ephemeral=True)
     data = load_history()
     if not data:
-        return await interaction.response.send_message(
-            embed=discord.Embed(title="📜 History", description="No accounts have been generated yet.", color=0x5865F2),
-            ephemeral=True
-        )
+        e = discord.Embed(title="◈  History", description="> No accounts have been generated yet.", color=DARK_PURPLE)
+        e.set_footer(text="⚡ MC Account Bot")
+        return await interaction.response.send_message(embed=e, ephemeral=True)
     recent = data[-10:][::-1]
     lines = []
     for entry in recent:
         ts = int(entry.get("timestamp", 0))
-        sent_by = f" (sent by {entry['sent_by']})" if entry.get("sent_by") else ""
+        sent_by = f" *(sent by {entry['sent_by']})*" if entry.get("sent_by") else ""
         lines.append(f"<t:{ts}:R> — <@{entry['user_id']}>{sent_by}\n`{entry['email']}`")
-    embed = discord.Embed(title="📜 Generation History (Last 10)", description="\n\n".join(lines), color=0x5865F2)
-    embed.set_footer(text=f"Total generated: {len(data)}")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    e = discord.Embed(title="◈  Generation History", description="\n\n".join(lines), color=DARK_PURPLE)
+    e.set_footer(text=f"⚡ Total generated: {len(data)} • MC Account Bot")
+    e.timestamp = discord.utils.utcnow()
+    await interaction.response.send_message(embed=e, ephemeral=True)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -470,45 +452,56 @@ async def history(interaction: discord.Interaction):
 # ══════════════════════════════════════════════════════════════
 
 @bot.command(name="gen")
-async def prefix_gen(ctx: commands.Context):
-    if not is_owner_id(ctx.author.id):
-        return await ctx.send(embed=error_embed("No Permission", "Only owners can generate accounts."))
-    status, data, embed = await do_generate(ctx.author)
+async def prefix_gen(ctx: commands.Context, amount: int = 1):
+    if not is_owner_id(ctx.author.id) and not is_permitted(ctx.author.id):
+        return await ctx.send(embed=error_embed("No Permission", "You don't have access to generate accounts."))
+    if amount < 1 or amount > 10:
+        return await ctx.send(embed=error_embed("Invalid Amount", "Amount must be between 1 and 10."))
+    status, data, embed, remaining = await core_generate(ctx.author, amount)
     if status == "cooldown":
         return await ctx.send(embed=error_embed("⏳ Cooldown", f"Please wait **{data}s** before generating again."))
     if status == "empty":
         return await ctx.send(embed=error_embed("Out of Stock", "There are no accounts available right now."))
+    if status == "notenough":
+        return await ctx.send(embed=error_embed("Not Enough Stock", f"Only **{data}** account(s) available."))
     try:
         await ctx.author.send(embed=embed)
-        await ctx.send(embed=success_embed("Account Sent!", "Your Minecraft account has been sent to your DMs! 📬"))
+        sent = discord.Embed(title="✦  Account(s) Sent!", description=f"> **{amount}** account(s) slid into your DMs 📬", color=GOLD)
+        sent.set_footer(text="⚡ MC Account Bot • Check your DMs!")
+        await ctx.send(embed=sent)
     except discord.Forbidden:
         await ctx.send(content="⚠️ Couldn't DM you, here it is:", embed=embed)
 
 
 @bot.command(name="stock")
 async def prefix_stock(ctx: commands.Context):
-    if not is_owner_id(ctx.author.id):
-        return await ctx.send(embed=error_embed("No Permission", "Only owners can check stock."))
-    count = len(load_stock())
-    color = 0x57F287 if count > 0 else 0xED4245
-    embed = discord.Embed(title="📦 Stock Status", description=f"There are **{count}** account(s) available." if count > 0 else "Stock is **empty**.", color=color)
-    await ctx.send(embed=embed)
+    await ctx.send(embed=stock_embed(len(load_stock())))
 
 
 @bot.command(name="sendaccount")
-async def prefix_sendaccount(ctx: commands.Context, user: discord.Member = None):
+async def prefix_sendaccount(ctx: commands.Context, user: discord.Member = None, amount: int = 1):
     if not is_owner_id(ctx.author.id):
         return await ctx.send(embed=error_embed("No Permission", "Only owners can send accounts."))
     if not user:
-        return await ctx.send(embed=error_embed("Missing User", "Usage: `!sendaccount @user`"))
-    status, stock, embed = await do_sendaccount(user, ctx.author)
+        return await ctx.send(embed=error_embed("Missing User", "Usage: `!sendaccount @user <amount>`"))
+    if amount < 1 or amount > 10:
+        return await ctx.send(embed=error_embed("Invalid Amount", "Amount must be between 1 and 10."))
+    status, accounts, embed = await core_sendaccount(user, ctx.author, amount)
     if status == "empty":
         return await ctx.send(embed=error_embed("Out of Stock", "There are no accounts available right now."))
+    if status == "notenough":
+        return await ctx.send(embed=error_embed("Not Enough Stock", f"Only **{accounts}** account(s) available."))
     try:
         await user.send(embed=embed)
     except discord.Forbidden:
         return await ctx.send(embed=error_embed("DM Failed", f"Couldn't DM {user.mention}. They may have DMs disabled."))
-    await ctx.send(content=f"{user.mention}", embed=success_embed("Account Sent!", f"{user.mention} has been sent a Minecraft account via DM.\nSent by {ctx.author.mention}"))
+    confirm = discord.Embed(title="✦  Account(s) Sent!", color=PURPLE)
+    confirm.add_field(name="Sent by", value=ctx.author.mention, inline=True)
+    confirm.add_field(name="Recipient", value=user.mention, inline=True)
+    confirm.add_field(name="Amount", value=f"`{amount}`", inline=True)
+    confirm.set_footer(text="⚡ MC Account Bot")
+    confirm.timestamp = discord.utils.utcnow()
+    await ctx.send(content=f"{user.mention}", embed=confirm)
 
 
 @bot.command(name="addstock")
@@ -530,9 +523,14 @@ async def prefix_addstock(ctx: commands.Context):
         existing = load_stock()
         merged = existing + new_accounts
         save_stock(merged)
-        await ctx.send(embed=success_embed("Stock Updated", f"Added **{len(new_accounts)}** account(s).\nTotal stock: **{len(merged)}**"))
-    except Exception as e:
-        await ctx.send(embed=error_embed("Error", f"Could not read the file: {e}"))
+        e = discord.Embed(title="✦  Stock Updated", color=GOLD)
+        e.add_field(name="Added", value=f"```{len(new_accounts)} accounts```", inline=True)
+        e.add_field(name="Total Stock", value=f"```{len(merged)} accounts```", inline=True)
+        e.set_footer(text=f"⚡ MC Account Bot • Uploaded by {ctx.author}")
+        e.timestamp = discord.utils.utcnow()
+        await ctx.send(embed=e)
+    except Exception as ex:
+        await ctx.send(embed=error_embed("Error", f"Could not read the file: {ex}"))
 
 
 @bot.command(name="clearstock")
@@ -555,9 +553,8 @@ async def prefix_removestock(ctx: commands.Context, amount: int = None):
     stock = load_stock()
     if amount > len(stock):
         return await ctx.send(embed=error_embed("Too Many", f"Only **{len(stock)}** account(s) in stock."))
-    stock = stock[amount:]
-    save_stock(stock)
-    await ctx.send(embed=success_embed("Stock Removed", f"Removed **{amount}** account(s).\nRemaining: **{len(stock)}**"))
+    save_stock(stock[amount:])
+    await ctx.send(embed=success_embed("Stock Removed", f"Removed **{amount}** account(s). Remaining: **{len(stock) - amount}**"))
 
 
 @bot.command(name="history")
@@ -566,16 +563,19 @@ async def prefix_history(ctx: commands.Context):
         return await ctx.send(embed=error_embed("No Permission", "Only owners can view history."))
     data = load_history()
     if not data:
-        return await ctx.send(embed=discord.Embed(title="📜 History", description="No accounts have been generated yet.", color=0x5865F2))
+        e = discord.Embed(title="◈  History", description="> No accounts have been generated yet.", color=DARK_PURPLE)
+        e.set_footer(text="⚡ MC Account Bot")
+        return await ctx.send(embed=e)
     recent = data[-10:][::-1]
     lines = []
     for entry in recent:
         ts = int(entry.get("timestamp", 0))
-        sent_by = f" (sent by {entry['sent_by']})" if entry.get("sent_by") else ""
+        sent_by = f" *(sent by {entry['sent_by']})*" if entry.get("sent_by") else ""
         lines.append(f"<t:{ts}:R> — <@{entry['user_id']}>{sent_by}\n`{entry['email']}`")
-    embed = discord.Embed(title="📜 Generation History (Last 10)", description="\n\n".join(lines), color=0x5865F2)
-    embed.set_footer(text=f"Total generated: {len(data)}")
-    await ctx.send(embed=embed)
+    e = discord.Embed(title="◈  Generation History", description="\n\n".join(lines), color=DARK_PURPLE)
+    e.set_footer(text=f"⚡ Total generated: {len(data)} • MC Account Bot")
+    e.timestamp = discord.utils.utcnow()
+    await ctx.send(embed=e)
 
 
 # ══════════════════════════════════════════════════════════════

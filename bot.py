@@ -26,7 +26,7 @@ DARK_PURPLE = 0x6C3483
 # ─────────────────────────────────────────────────────────────
 
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 tree = bot.tree
 cooldowns: dict[int, float] = {}
 
@@ -626,7 +626,9 @@ async def prefix_history(ctx: commands.Context):
 
 
 
-@bot.command(name="help")
+@bot.command(name="help", aliases=["cmds"])
+@bot.remove_command("help")
+
 async def prefix_help(ctx: commands.Context):
     owner = is_owner_id(ctx.author.id)
     permitted = is_permitted(ctx.author.id)

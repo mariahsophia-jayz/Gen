@@ -447,6 +447,51 @@ async def history(interaction: discord.Interaction):
     await interaction.response.send_message(embed=e, ephemeral=True)
 
 
+
+@tree.command(name="restock", description="Put back recently generated accounts into stock")
+@app_commands.describe(minutes="How many minutes back to restock (1-10, default 5)", amount="Max accounts to restock (1-10, default 10)")
+async def restock(interaction: discord.Interaction, minutes: int = 5, amount: int = 10):
+    if not is_owner(interaction):
+        return await interaction.response.send_message(embed=error_embed("No Permission", "Only owners can restock."), ephemeral=True)
+    if minutes < 1 or minutes > 10:
+        return await interaction.response.send_message(embed=error_embed("Invalid Time", "Minutes must be between 1 and 10."), ephemeral=True)
+    if amount < 1 or amount > 10:
+        return await interaction.response.send_message(embed=error_embed("Invalid Amount", "Amount must be between 1 and 10."), ephemeral=True)
+
+    history = load_history()
+    if not history:
+        return await interaction.response.send_message(embed=error_embed("No History", "No accounts have been generated yet."), ephemeral=True)
+
+    cutoff = time.time() - (minutes * 60)
+    recent = [e for e in history if e.get("timestamp", 0) >= cutoff]
+
+    if not recent:
+        return await interaction.response.send_message(
+            embed=error_embed("None Found", f"No accounts were generated in the last **{minutes}** minute(s)."),
+            ephemeral=True
+        )
+
+    # Take up to `amount` most recent ones
+    to_restock = recent[-amount:]
+    emails_restocked = [e["email"] for e in to_restock]
+
+    # Add back to stock
+    current_stock = load_stock()
+    save_stock(emails_restocked + current_stock)
+
+    # Remove from history
+    restocked_timestamps = {e["timestamp"] for e in to_restock}
+    updated_history = [e for e in history if e.get("timestamp") not in restocked_timestamps]
+    save_history(updated_history)
+
+    e = discord.Embed(title="✦  Restock Complete", color=GOLD)
+    e.add_field(name="Restocked", value=f"```{len(emails_restocked)} account(s)```", inline=True)
+    e.add_field(name="Time Window", value=f"```Last {minutes} min(s)```", inline=True)
+    e.add_field(name="New Stock Total", value=f"```{len(current_stock) + len(emails_restocked)} accounts```", inline=True)
+    e.set_footer(text=f"⚡ Restocked by {interaction.user} • MC Account Bot")
+    e.timestamp = discord.utils.utcnow()
+    await interaction.response.send_message(embed=e)
+
 # ══════════════════════════════════════════════════════════════
 #  PREFIX COMMANDS
 # ══════════════════════════════════════════════════════════════
@@ -577,6 +622,33 @@ async def prefix_history(ctx: commands.Context):
     e.timestamp = discord.utils.utcnow()
     await ctx.send(embed=e)
 
+
+
+
+
+@bot.command(name="help")
+async def prefix_help(ctx: commands.Context):
+    owner = is_owner_id(ctx.author.id)
+    permitted = is_permitted(ctx.author.id)
+    e = discord.Embed(title="[MC ACCOUNT BOT]", color=PURPLE)
+    e.description = "> Your Minecraft account generator bot"
+    if owner:
+        e.add_field(name="Owner Commands", value="\u200b", inline=False)
+        e.add_field(name="Stock", value="`!addstock` - Add accounts\n`!clearstock` - Wipe stock\n`!removestock <n>` - Remove N accounts\n`!stock` - Check count\n`/restock <mins> <n>` - Restock recent", inline=False)
+        e.add_field(name="Generate", value="`!gen <n>` - Generate to DMs\n`!sendaccount @user <n>` - Send to user\n`/generate <n>` - Slash version\n`/sendaccount @user <n>` - Slash version", inline=False)
+        e.add_field(name="Access", value="`/genaccess @user <time>` - Grant access\n`/revokeaccess @user` - Remove access\n`/listaccess` - List users", inline=False)
+        e.add_field(name="Logs", value="`!history` / `/history` - Last 10 generated", inline=False)
+    elif permitted:
+        e.add_field(name="Your Commands", value="\u200b", inline=False)
+        e.add_field(name="Generate", value="`!gen <n>` - Generate accounts (sent to DMs)\n`/generate <n>` - Slash version", inline=False)
+        e.add_field(name="Stock", value="`!stock` - Check how many accounts are available", inline=False)
+    else:
+        e.add_field(name="Commands", value="\u200b", inline=False)
+        e.add_field(name="Stock", value="`!stock` / `/checkstock` - Check available accounts", inline=False)
+        e.add_field(name="Want Access?", value="Ask an owner to grant you access via `/genaccess`", inline=False)
+    e.set_footer(text="MC Account Bot | <n> is optional, default is 1")
+    e.timestamp = discord.utils.utcnow()
+    await ctx.send(embed=e)
 
 # ══════════════════════════════════════════════════════════════
 #  BOT READY

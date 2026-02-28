@@ -117,9 +117,9 @@ def save_history(data: list):
     with open(HISTORY_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-def log_history(user_id: int, username: str, email: str, sent_by: str = None):
+def log_history(user_id: int, username: str, email: str, sent_by: str = None, full_account: str = None):
     history = load_history()
-    history.append({"user_id": user_id, "username": username, "email": email, "sent_by": sent_by, "timestamp": time.time()})
+    history.append({"user_id": user_id, "username": username, "email": email, "full_account": full_account or email, "sent_by": sent_by, "timestamp": time.time()})
     save_history(history)
 
 
@@ -214,7 +214,7 @@ async def core_generate(user, amount: int):
 
     for acc in accounts:
         email = acc.split(":", 1)[0] if ":" in acc else acc
-        log_history(user.id, str(user), email)
+        log_history(user.id, str(user), email, full_account=acc)
 
     embed = account_embed(accounts, user)
     embed.add_field(name="📦 Stock Remaining", value=f"```{len(stock) - amount} accounts left```", inline=False)
@@ -234,7 +234,7 @@ async def core_sendaccount(target, sender, amount: int):
 
     for acc in accounts:
         email = acc.split(":", 1)[0] if ":" in acc else acc
-        log_history(target.id, str(target), email, sent_by=str(sender))
+        log_history(target.id, str(target), email, sent_by=str(sender), full_account=acc)
 
     embed = account_embed(accounts, target, sent_by=sender)
     embed.add_field(name="📦 Stock Remaining", value=f"```{len(stock) - amount} accounts left```", inline=False)
@@ -473,11 +473,11 @@ async def restock(interaction: discord.Interaction, minutes: int = 5, amount: in
 
     # Take up to `amount` most recent ones
     to_restock = recent[-amount:]
-    emails_restocked = [e["email"] for e in to_restock]
+    accounts_restocked = [e.get("full_account", e["email"]) for e in to_restock]
 
     # Add back to stock
     current_stock = load_stock()
-    save_stock(emails_restocked + current_stock)
+    save_stock(accounts_restocked + current_stock)
 
     # Remove from history
     restocked_timestamps = {e["timestamp"] for e in to_restock}
@@ -485,9 +485,9 @@ async def restock(interaction: discord.Interaction, minutes: int = 5, amount: in
     save_history(updated_history)
 
     e = discord.Embed(title="✦  Restock Complete", color=GOLD)
-    e.add_field(name="Restocked", value=f"```{len(emails_restocked)} account(s)```", inline=True)
+    e.add_field(name="Restocked", value=f"```{len(accounts_restocked)} account(s)```", inline=True)
     e.add_field(name="Time Window", value=f"```Last {minutes} min(s)```", inline=True)
-    e.add_field(name="New Stock Total", value=f"```{len(current_stock) + len(emails_restocked)} accounts```", inline=True)
+    e.add_field(name="New Stock Total", value=f"```{len(current_stock) + len(accounts_restocked)} accounts```", inline=True)
     e.set_footer(text=f"⚡ Restocked by {interaction.user} • MC Account Bot")
     e.timestamp = discord.utils.utcnow()
     await interaction.response.send_message(embed=e)
